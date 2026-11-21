@@ -1,0 +1,9 @@
+# MarketPulse TV rendering
+
+The public `Vinqotech/marketpulse-tv` repository contains only the renderer, not station secrets. GitHub repository dispatch carries an episode-scoped callback token and signed upload URLs. Do not print the event payload, upload it as an artifact, or commit it. Signed uploads expire after two hours. The workflow times out after 110 minutes.
+
+Install renderer dependencies with `npm install --prefix renderer`, then run `NODE_PATH="$PWD/renderer/node_modules" node scripts/render-briefing.mjs` inside the workflow. The GitHub runner uses CPU Kokoro and FFmpeg; no paid avatar, video or voice APIs are used. Public standard GitHub runners are normally free; GitHub plan and usage restrictions still apply. Cloud storage, bandwidth and a continuous RTMP host may cost money. A public repository does not make the station's Cloud data public.
+
+This first version uses deterministic source-attributed briefing assembly, not a local language model. Narration is stretched to the requested duration; for ideal pacing, editorial review and fuller scripts are recommended. An anchor image has subtle motion and a voice-reactive visualization, not synthetic lip-sync. Preview charts are illustrative; no market quotes are fabricated. The video bug says BULLETIN, not LIVE, because it is recorded. Reuters' retired public RSS endpoints are not seeded; BBC World is the world-news replacement. Check each feed's syndication and rebroadcast rights before public distribution.
+
+Publish the station before dispatching renders: GitHub must reach the callbacks and media. Sign in, save settings, and generate a bulletin. Saved episodes stay scheduled on dispatch failure with a visible error; rendered episodes become ready only after verified uploads. A separate always-on host must run `stream-247.sh`; GitHub Actions does not provide an unlimited 24/7 RTMP server. Restart the stream process to pick up a changed rotation.

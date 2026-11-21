@@ -1,0 +1,26 @@
+import {readFile,mkdir,writeFile,copyFile} from 'node:fs/promises';
+import {bundle} from '@remotion/bundler';
+import {renderMedia,renderStill,selectComposition} from '@remotion/renderer';
+import {execFileSync} from 'node:child_process';
+const event=JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH||process.argv[2], 'utf8'));
+const payload={...event.client_payload?.briefing,episode_id:event.client_payload?.episode_id};
+if(!payload?.episode_id||!payload.script_json?.segments?.length)throw new Error('Missing repository_dispatch briefing payload');
+const callback=new URL(payload.callback_url);if(callback.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(callback.hostname))throw new Error('Callback must use HTTPS');
+for(const url of [payload.video_upload_url,payload.thumbnail_upload_url])if(new URL(url).protocol!=='https:')throw new Error('Upload URLs must use HTTPS');
+const auth={Authorization:`Bearer ${payload.job_token}`,'Content-Type':'application/json'};
+const notify=async(body)=>{const r=await fetch(callback,{method:'POST',headers:auth,body:JSON.stringify({episode_id:payload.episode_id,...body})});if(!r.ok)throw new Error(`Callback failed (${r.status})`)};
+try{
+ await mkdir('render-assets',{recursive:true});await mkdir('render-output',{recursive:true});
+ await writeFile('render-assets/payload.json',JSON.stringify(payload));
+ const image=await fetch(payload.anchor_avatar_url);if(!image.ok)throw new Error('Studio image unavailable');await writeFile('render-assets/anchor.png',Buffer.from(await image.arrayBuffer()));
+ execFileSync('python3',['scripts/narrate.py','render-assets/payload.json'],{stdio:'inherit'});
+ const props={segments:payload.script_json.segments,ticker_headlines:payload.ticker_headlines,headline_title:payload.headline_title,anchor_name:payload.anchor_name,channel_bug_text:payload.channel_bug_text,start_time:new Date().toISOString(),anchor_image:'anchor.png',audio_src:'narration.wav'};
+ const serveUrl=await bundle({entryPoint:'remotion/index.tsx',publicDir:'render-assets'});
+ const composition=await selectComposition({serveUrl,id:'TVBroadcast',inputProps:props});
+ await renderMedia({composition,serveUrl,inputProps:props,codec:'h264',outputLocation:'render-output/raw.mp4',concurrency:2});
+ await renderStill({composition,serveUrl,inputProps:props,output:'render-output/thumbnail.png',frame:Math.min(90,composition.durationInFrames-1)});
+ execFileSync('ffmpeg',['-y','-i','render-output/raw.mp4','-c:v','libx264','-preset','fast','-b:v','3500k','-minrate','3500k','-maxrate','3500k','-bufsize','7000k','-g','60','-keyint_min','60','-sc_threshold','0','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','128k','-ar','48000','-movflags','+faststart','render-output/broadcast.mp4'],{stdio:'inherit'});
+ for(const [url,path,type] of [[payload.video_upload_url,'render-output/broadcast.mp4','video/mp4'],[payload.thumbnail_upload_url,'render-output/thumbnail.png','image/png']]){const r=await fetch(url,{method:'PUT',headers:{'Content-Type':type},body:await readFile(path)});if(!r.ok)throw new Error(`Media upload failed (${r.status})`)}
+ await notify({status:'ready'});
+ console.log(`Episode ${payload.episode_id} ready`);
+}catch(error){await notify({status:'failed',error:String(error).slice(0,1000)}).catch(()=>console.error('Failure callback could not be delivered'));throw error}

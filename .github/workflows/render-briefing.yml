@@ -1,0 +1,31 @@
+name: Render MarketPulse TV briefing
+on:
+  repository_dispatch:
+    types: [render-briefing]
+permissions:
+  contents: read
+concurrency:
+  group: marketpulse-${{ github.event.client_payload.episode_id }}
+  cancel-in-progress: false
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+      - name: Install renderer
+        run: cp renderer/package.json package.json && npm install --no-audit --no-fund
+      - name: Install CPU narration
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install kokoro==0.9.4 soundfile numpy
+      - name: Render and upload briefing
+        run: node scripts/render-briefing.mjs
