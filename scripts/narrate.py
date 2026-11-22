@@ -10,7 +10,7 @@ pipeline=KPipeline(lang_code='a')
 segments=payload['script_json']['segments']
 tracks=[]
 for i,segment in enumerate(segments):
-    chunks=[audio for _,_,audio in pipeline(segment['narration'],voice='af_heart',speed=1)]
+    chunks=[audio for _,_,audio in pipeline(segment['narration'],voice='af_bella',speed=1)]
     if not chunks: raise RuntimeError('Kokoro produced no audio')
     raw=root / f'raw-{i}.wav'; out=root / f'segment-{i}.wav'
     sf.write(raw,np.concatenate(chunks),24000)

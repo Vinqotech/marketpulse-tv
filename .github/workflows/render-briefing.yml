@@ -26,6 +26,6 @@ jobs:
       - name: Install CPU narration
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install kokoro==0.9.4 soundfile numpy
+          pip install kokoro==0.9.4 soundfile numpy transformers==4.57.1 accelerate sentencepiece
       - name: Render and upload briefing
         run: node scripts/render-briefing.mjs
