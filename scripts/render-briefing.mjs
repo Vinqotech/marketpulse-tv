@@ -1,4 +1,4 @@
-import {readFile,mkdir,writeFile,copyFile} from 'node:fs/promises';
+import {readFile,mkdir,writeFile,copyFile,stat} from 'node:fs/promises';
 import {bundle} from '@remotion/bundler';
 import {renderMedia,renderStill,selectComposition} from '@remotion/renderer';
 import {execFileSync} from 'node:child_process';
@@ -19,8 +19,8 @@ try{
  const composition=await selectComposition({serveUrl,id:'TVBroadcast',inputProps:props});
  await renderMedia({composition,serveUrl,inputProps:props,codec:'h264',outputLocation:'render-output/raw.mp4',concurrency:2});
  await renderStill({composition,serveUrl,inputProps:props,output:'render-output/thumbnail.png',frame:Math.min(90,composition.durationInFrames-1)});
- execFileSync('ffmpeg',['-y','-i','render-output/raw.mp4','-c:v','libx264','-preset','fast','-b:v','3500k','-minrate','3500k','-maxrate','3500k','-bufsize','7000k','-g','60','-keyint_min','60','-sc_threshold','0','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','128k','-ar','48000','-movflags','+faststart','render-output/broadcast.mp4'],{stdio:'inherit'});
- for(const [url,path,type] of [[payload.video_upload_url,'render-output/broadcast.mp4','video/mp4'],[payload.thumbnail_upload_url,'render-output/thumbnail.png','image/png']]){const r=await fetch(url,{method:'PUT',headers:{'Content-Type':type},body:await readFile(path)});if(!r.ok)throw new Error(`Media upload failed (${r.status})`)}
+ execFileSync('ffmpeg',['-y','-i','render-output/raw.mp4','-vf','scale=1920:1080','-c:v','libx264','-preset','veryfast','-crf','25','-maxrate','1800k','-bufsize','3600k','-g','60','-keyint_min','60','-sc_threshold','0','-pix_fmt','yuv420p','-r','30','-c:a','aac','-b:a','128k','-ar','48000','-movflags','+faststart','render-output/broadcast.mp4'],{stdio:'inherit'});
+ for(const [url,path,type] of [[payload.video_upload_url,'render-output/broadcast.mp4','video/mp4'],[payload.thumbnail_upload_url,'render-output/thumbnail.png','image/png']]){const size=(await stat(path)).size;console.log(`[upload] ${path}: ${size} bytes (${(size/1048576).toFixed(2)} MB) -> starting upload`);const t0=Date.now();const r=await fetch(url,{method:'PUT',headers:{'Content-Type':type},body:await readFile(path)});if(!r.ok)throw new Error(`Media upload failed for ${path} (${r.status}, ${(size/1048576).toFixed(2)} MB): ${(await r.text()).slice(0,300)}`);console.log(`[upload] ${path}: done in ${((Date.now()-t0)/1000).toFixed(1)}s`)}
  await notify({status:'ready'});
  console.log(`Episode ${payload.episode_id} ready`);
 }catch(error){await notify({status:'failed',error:String(error).slice(0,1000)}).catch(()=>console.error('Failure callback could not be delivered'));throw error}
