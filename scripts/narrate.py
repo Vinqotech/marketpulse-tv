@@ -1,8 +1,9 @@
-import json, sys, subprocess
+import json, sys
 from pathlib import Path
 import numpy as np
 import soundfile as sf
 from kokoro import KPipeline
+from narration_audio import prepare_segment
 payload=json.load(open(sys.argv[1]))
 root=Path('render-assets'); root.mkdir(exist_ok=True)
 pipeline=KPipeline(lang_code='a')
@@ -13,13 +14,9 @@ for i,segment in enumerate(segments):
     if not chunks: raise RuntimeError('Kokoro produced no audio')
     raw=root / f'raw-{i}.wav'; out=root / f'segment-{i}.wav'
     sf.write(raw,np.concatenate(chunks),24000)
-    duration=segment['duration_frames']/30
-    actual=sum(len(c) for c in chunks)/24000
-    factor=actual/duration
-    filters=[]
-    while factor<0.5: filters.append('atempo=0.5'); factor/=0.5
-    while factor>2: filters.append('atempo=2'); factor/=2
-    filters.extend([f'atempo={factor}',f'apad',f'atrim=duration={duration}'])
-    subprocess.run(['ffmpeg','-y','-i',str(raw),'-af',','.join(filters),'-ar','48000',str(out)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    segment['duration_frames']=prepare_segment(raw,out,segment['duration_frames'])
+    print(f"[audio] Segment {i+1}: 1.0x speech, 48000 Hz stereo, {segment['duration_frames']/30:.3f}s timeline",flush=True)
     tracks.append(sf.read(out)[0])
-sf.write(root / 'narration.wav',np.concatenate(tracks),48000)
+sf.write(root / 'narration-source.wav',np.concatenate(tracks),48000,subtype='PCM_16')
+with open(root / 'segments.json','w') as output:
+    json.dump(segments,output)
