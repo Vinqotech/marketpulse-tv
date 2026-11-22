@@ -3,6 +3,7 @@ import {bundle} from '@remotion/bundler';
 import {renderMedia,renderStill,selectComposition} from '@remotion/renderer';
 import {execFileSync} from 'node:child_process';
 import {normalizeNarration,muxBroadcast,RENDER_FPS} from './render-audio.mjs';
+import {prepareShowdown} from './quantitative-showdown.mjs';
 const event=JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH||process.argv[2], 'utf8'));
 const payload={...event.client_payload?.briefing,episode_id:event.client_payload?.episode_id};
 if(!payload?.episode_id||!payload.script_json?.segments?.length)throw new Error('Missing repository_dispatch briefing payload');
@@ -16,10 +17,13 @@ try{
  const image=await fetch(payload.anchor_avatar_url);if(!image.ok)throw new Error('Studio image unavailable');await writeFile('render-assets/anchor.png',Buffer.from(await image.arrayBuffer()));
  execFileSync('python3',['scripts/broadcast_editor.py','render-assets/payload.json'],{stdio:'inherit'});
  const edited=JSON.parse(await readFile('render-assets/payload.json','utf8'));
+ await prepareShowdown(edited);
+ await writeFile('render-assets/payload.json',JSON.stringify(edited));
  execFileSync('python3',['scripts/narrate.py','render-assets/payload.json'],{stdio:'inherit'});
  normalizeNarration('render-assets/narration-source.wav','render-assets/narration.wav');
  const segments=JSON.parse(await readFile('render-assets/segments.json','utf8'));
- const props={segments,ticker_headlines:edited.ticker_headlines,headline_title:edited.headline_title,anchor_name:payload.anchor_name,channel_bug_text:payload.channel_bug_text,start_time:new Date().toISOString(),anchor_image:'anchor.png',audio_src:'narration.wav'};
+ const timing=JSON.parse(await readFile('render-assets/timing.json','utf8'));
+ const props={segments,...timing,showdown:edited.script_json.showdown,ticker_headlines:edited.ticker_headlines,headline_title:edited.headline_title,anchor_name:payload.anchor_name,channel_bug_text:payload.channel_bug_text,start_time:new Date().toISOString(),anchor_image:'anchor.png',audio_src:'narration.wav'};
  const serveUrl=await bundle({entryPoint:'remotion/index.tsx',publicDir:'render-assets'});
  const composition=await selectComposition({serveUrl,id:'TVBroadcast',inputProps:props});
  if(composition.fps!==RENDER_FPS)throw new Error(`Composition FPS ${composition.fps} must match render FPS ${RENDER_FPS}`);
@@ -28,6 +32,6 @@ try{
  await renderStill({composition,serveUrl,inputProps:props,output:'render-output/thumbnail.png',frame:Math.min(90,composition.durationInFrames-1)});
  muxBroadcast('render-output/raw.mp4','render-assets/narration.wav','render-output/broadcast.mp4');
  for(const [url,path,type] of [[payload.video_upload_url,'render-output/broadcast.mp4','video/mp4'],[payload.thumbnail_upload_url,'render-output/thumbnail.png','image/png']]){const size=(await stat(path)).size;console.log(`[upload] ${path}: ${size} bytes (${(size/1048576).toFixed(2)} MB) -> starting upload`);const t0=Date.now();const r=await fetch(url,{method:'PUT',headers:{'Content-Type':type},body:await readFile(path)});if(!r.ok)throw new Error(`Media upload failed for ${path} (${r.status}, ${(size/1048576).toFixed(2)} MB): ${(await r.text()).slice(0,300)}`);console.log(`[upload] ${path}: done in ${((Date.now()-t0)/1000).toFixed(1)}s`)}
- await notify({status:'ready',segments:segments.map(({headline,narration,duration_frames})=>({headline,narration,duration_frames}))});
+ await notify({status:'ready',segments:segments.map(({headline,narration,duration_frames,takeaways})=>({headline,narration,duration_frames,takeaways})),two_act_result:{...timing,showdown:edited.script_json.showdown}});
  console.log(`Episode ${payload.episode_id} ready`);
 }catch(error){await notify({status:'failed',error:String(error).slice(0,1000)}).catch(()=>console.error('Failure callback could not be delivered'));throw error}
