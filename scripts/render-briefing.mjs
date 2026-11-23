@@ -20,7 +20,7 @@ try{
  if(!editorialFile.isFile())throw new Error(`[editor] Payload path is not a file: ${editorialPath}`);
  console.log(`[editor] Starting Python editor with ${editorialPath} (${editorialFile.size} bytes); diagnostics stream below`);
  try{
-  execFileSync('python3',['-u','scripts/broadcast_editor.py',editorialPath],{stdio:'inherit',encoding:'utf8'});
+  execFileSync('python3',['-u','scripts/broadcast_editor.py','render-assets/payload.json'],{stdio:'inherit'});
  }catch(error){
   // Inherited streams intentionally leave stdout/stderr null; Python prints its cause live.
   const reason=error.code||`exit code ${error.status ?? 'unknown'}${error.signal?`, signal ${error.signal}`:''}`;

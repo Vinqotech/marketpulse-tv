@@ -3,6 +3,7 @@ import html
 import json
 import re
 import sys
+import traceback
 from pathlib import Path
 
 MODEL = 'Qwen/Qwen2.5-3B-Instruct'
@@ -138,14 +139,40 @@ def rewrite_stories(payload, generate, verify_facts=None):
     return payload
 
 
+def print_payload_summary(payload):
+    """Report known field names/types/counts, never credentials or story content."""
+    def fields(value, names):
+        if not isinstance(value, dict):
+            return {'type': type(value).__name__}
+        return {'keys': [name for name in names if name in value],
+                'other_field_count': sum(key not in names for key in value)}
+    top_keys = ('script_json', 'episode_id', 'headline_title', 'ticker_headlines',
+                'anchor_name', 'anchor_avatar_url', 'channel_bug_text', 'callback_url',
+                'job_token', 'video_upload_url', 'thumbnail_upload_url', 'video_path', 'thumbnail_path')
+    summary = {'payload': fields(payload, top_keys)}
+    script = payload.get('script_json') if isinstance(payload, dict) else None
+    summary['script_json'] = fields(script, ('segments', 'editorial_stories', 'two_act', 'chyrons', 'chart_data', 'showdown'))
+    if isinstance(script, dict):
+        for name in ('editorial_stories', 'segments'):
+            items = script.get(name)
+            summary[name] = {'type': type(items).__name__, 'count': len(items) if isinstance(items, list) else None}
+            if isinstance(items, list):
+                required = ('title', 'summary', 'source') if name == 'editorial_stories' else ('headline', 'narration', 'duration_frames', 'takeaways')
+                summary[name]['first_item_fields'] = fields(items[0], required) if items else None
+        summary['two_act'] = fields(script.get('two_act'), ('target_minutes', 'total_words', 'act1_words', 'act2_words', 'beat'))
+    print('[editor] Payload summary (field values omitted): ' + json.dumps(summary), flush=True)
+
+
 def load_payload(path):
     try:
+        print(f'[editor] Payload file: {Path(path).resolve()}', flush=True)
         with open(path, encoding='utf-8') as source:
             payload = json.load(source)
     except OSError as error:
         raise ValueError(f'Cannot read payload file {path}: {error.strerror}') from error
     except json.JSONDecodeError as error:
         raise ValueError(f'Invalid JSON in {path}: {error.msg} at line {error.lineno}, column {error.colno}') from error
+    print_payload_summary(payload)
     if not isinstance(payload, dict):
         raise ValueError('Payload must be a JSON object')
     script = payload.get('script_json')
@@ -230,8 +257,12 @@ def main(argv=None):
         print(f'[editor] Missing or incompatible Python package during {stage}: {error}. '
               'Install the CPU narration/editor dependencies listed in render-briefing.yml; '
               'required factual checks cannot be skipped.', file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
     except Exception as error:
         print(f'[editor] Failed while {stage}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
     return 1
 
 
