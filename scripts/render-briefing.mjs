@@ -29,7 +29,7 @@ try{
  const edited=JSON.parse(await readFile('render-assets/payload.json','utf8'));
  await prepareShowdown(edited);
  await writeFile('render-assets/payload.json',JSON.stringify(edited));
- execFileSync('python3',['scripts/narrate.py','render-assets/payload.json'],{stdio:'inherit'});
+ execFileSync('python3',['-u','scripts/narrate.py','render-assets/payload.json'],{stdio:'inherit',encoding:'utf8'});
  normalizeNarration('render-assets/narration-source.wav','render-assets/narration.wav');
  const segments=JSON.parse(await readFile('render-assets/segments.json','utf8'));
  const timing=JSON.parse(await readFile('render-assets/timing.json','utf8'));
@@ -44,4 +44,4 @@ try{
  for(const [url,path,type] of [[payload.video_upload_url,'render-output/broadcast.mp4','video/mp4'],[payload.thumbnail_upload_url,'render-output/thumbnail.png','image/png']]){const size=(await stat(path)).size;console.log(`[upload] ${path}: ${size} bytes (${(size/1048576).toFixed(2)} MB) -> starting upload`);const t0=Date.now();const r=await fetch(url,{method:'PUT',headers:{'Content-Type':type},body:await readFile(path)});if(!r.ok)throw new Error(`Media upload failed for ${path} (${r.status}, ${(size/1048576).toFixed(2)} MB): ${(await r.text()).slice(0,300)}`);console.log(`[upload] ${path}: done in ${((Date.now()-t0)/1000).toFixed(1)}s`)}
  await notify({status:'ready',segments:segments.map(({headline,narration,duration_frames,takeaways})=>({headline,narration,duration_frames,takeaways})),two_act_result:{...timing,showdown:edited.script_json.showdown}});
  console.log(`Episode ${payload.episode_id} ready`);
-}catch(error){await notify({status:'failed',error:String(error).slice(0,1000)}).catch(()=>console.error('Failure callback could not be delivered'));throw error}
+}catch(error){await notify({status:'failed',error:String(error).slice(0,1000)}).catch(callbackError=>console.error(`Failure callback could not be delivered: ${callbackError.message}`));throw error}
