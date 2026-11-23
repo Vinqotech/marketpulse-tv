@@ -11,6 +11,8 @@ jobs:
   render:
     runs-on: ubuntu-latest
     timeout-minutes: 110
+    env:
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,5 +29,18 @@ jobs:
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install kokoro==0.9.4 soundfile numpy transformers==4.57.1 accelerate sentencepiece
+      - name: Verify required Python editor and narration packages
+        run: |
+          python3 -u - <<'PY'
+          import importlib
+          import sys
+          for package in ('torch', 'transformers', 'accelerate', 'sentencepiece', 'kokoro', 'soundfile', 'numpy'):
+              try:
+                  importlib.import_module(package)
+                  print(f'[dependencies] {package}: available', flush=True)
+              except Exception as error:
+                  print(f'[dependencies] {package}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+                  sys.exit(1)
+          PY
       - name: Render and upload briefing
         run: node scripts/render-briefing.mjs

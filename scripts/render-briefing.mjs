@@ -15,7 +15,17 @@ try{
  await mkdir('render-assets',{recursive:true});await mkdir('render-output',{recursive:true});
  await writeFile('render-assets/payload.json',JSON.stringify(payload));
  const image=await fetch(payload.anchor_avatar_url);if(!image.ok)throw new Error('Studio image unavailable');await writeFile('render-assets/anchor.png',Buffer.from(await image.arrayBuffer()));
- execFileSync('python3',['scripts/broadcast_editor.py','render-assets/payload.json'],{stdio:'inherit'});
+ const editorialPath='render-assets/payload.json';
+ const editorialFile=await stat(editorialPath).catch(()=>{throw new Error(`[editor] Required payload file is missing or inaccessible: ${editorialPath}`)});
+ if(!editorialFile.isFile())throw new Error(`[editor] Payload path is not a file: ${editorialPath}`);
+ console.log(`[editor] Starting Python editor with ${editorialPath} (${editorialFile.size} bytes); diagnostics stream below`);
+ try{
+  execFileSync('python3',['-u','scripts/broadcast_editor.py',editorialPath],{stdio:'inherit',encoding:'utf8'});
+ }catch(error){
+  // Inherited streams intentionally leave stdout/stderr null; Python prints its cause live.
+  const reason=error.code||`exit code ${error.status ?? 'unknown'}${error.signal?`, signal ${error.signal}`:''}`;
+  throw new Error(`[editor] Python editor failed (${reason}). See [editor] diagnostics above.`,{cause:error});
+ }
  const edited=JSON.parse(await readFile('render-assets/payload.json','utf8'));
  await prepareShowdown(edited);
  await writeFile('render-assets/payload.json',JSON.stringify(edited));

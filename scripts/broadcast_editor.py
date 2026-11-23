@@ -2,6 +2,8 @@
 import html
 import json
 import re
+import sys
+from pathlib import Path
 
 MODEL = 'Qwen/Qwen2.5-3B-Instruct'
 ENTAILMENT_MODEL = 'cross-encoder/nli-deberta-v3-small'
@@ -136,8 +138,44 @@ def rewrite_stories(payload, generate, verify_facts=None):
     return payload
 
 
-def main():
-    import sys
+def load_payload(path):
+    try:
+        with open(path, encoding='utf-8') as source:
+            payload = json.load(source)
+    except OSError as error:
+        raise ValueError(f'Cannot read payload file {path}: {error.strerror}') from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f'Invalid JSON in {path}: {error.msg} at line {error.lineno}, column {error.colno}') from error
+    if not isinstance(payload, dict):
+        raise ValueError('Payload must be a JSON object')
+    script = payload.get('script_json')
+    if not isinstance(script, dict):
+        raise ValueError('script_json must be an object')
+    stories, segments = script.get('editorial_stories'), script.get('segments')
+    if not isinstance(stories, list) or not stories:
+        raise ValueError('script_json.editorial_stories must be a non-empty array; generate a new bulletin for legacy scripts')
+    if not isinstance(segments, list) or len(segments) != len(stories):
+        raise ValueError('script_json.segments must contain exactly one segment per editorial story')
+    for index, story in enumerate(stories):
+        for key in ('title', 'summary', 'source'):
+            if not isinstance(story, dict) or not isinstance(story.get(key), str):
+                raise ValueError(f'script_json.editorial_stories[{index}].{key} must be a string')
+    for index, segment in enumerate(segments):
+        for key in ('headline', 'narration'):
+            if not isinstance(segment, dict) or not isinstance(segment.get(key), str):
+                raise ValueError(f'script_json.segments[{index}].{key} must be a string')
+        takeaways = segment.get('takeaways', [])
+        if not isinstance(takeaways, list) or any(not isinstance(item, str) for item in takeaways):
+            raise ValueError(f'script_json.segments[{index}].takeaways must be an array of strings')
+    plan = script.get('two_act')
+    if plan is not None:
+        if not isinstance(plan, dict) or type(plan.get('act1_words')) is not int or plan['act1_words'] <= word_count(ACT_TRANSITION):
+            raise ValueError('script_json.two_act.act1_words must be an integer larger than the act transition word count')
+    return payload
+
+
+def edit_payload(payload):
+    # Required for factual rewriting. Charts/history run in JavaScript, not matplotlib/yfinance.
     import torch
     from transformers import AutoModelForCausalLM, AutoModelForSequenceClassification, AutoTokenizer
     torch.set_num_threads(2)
@@ -168,12 +206,34 @@ def main():
         with torch.inference_mode():
             output = model.generate(**inputs, max_new_tokens=650, do_sample=False, pad_token_id=tokenizer.eos_token_id)
         return tokenizer.decode(output[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
-    with open(sys.argv[1]) as source:
-        payload = json.load(source)
     rewrite_stories(payload, generate, verify_facts)
-    with open(sys.argv[1], 'w') as output:
-        json.dump(payload, output)
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) != 1:
+        print('[editor] Usage: python3 scripts/broadcast_editor.py <payload.json>', file=sys.stderr, flush=True)
+        return 1
+    path = Path(args[0])
+    stage = 'reading and validating payload'
+    try:
+        payload = load_payload(path)
+        print(f'[editor] Validated {len(payload["script_json"]["editorial_stories"])} stories from {path}', flush=True)
+        stage = 'loading model dependencies and rewriting stories'
+        edit_payload(payload)
+        stage = f'writing edited payload to {path}'
+        with open(path, 'w', encoding='utf-8') as output:
+            json.dump(payload, output)
+        print('[editor] Edited payload saved successfully', flush=True)
+        return 0
+    except ImportError as error:
+        print(f'[editor] Missing or incompatible Python package during {stage}: {error}. '
+              'Install the CPU narration/editor dependencies listed in render-briefing.yml; '
+              'required factual checks cannot be skipped.', file=sys.stderr, flush=True)
+    except Exception as error:
+        print(f'[editor] Failed while {stage}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+    return 1
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
