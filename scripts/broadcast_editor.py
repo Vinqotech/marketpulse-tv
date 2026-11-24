@@ -266,5 +266,22 @@ def main(argv=None):
     return 1
 
 
+def run():
+    try:
+        code = main()
+    except BaseException as exc:
+        if isinstance(exc, SystemExit) and exc.code in (0, None):
+            raise
+        details = traceback.format_exc()
+        for stream in (sys.stderr, sys.stdout):
+            print(f'[editor] Unhandled {type(exc).__name__}: {exc}', file=stream)
+            print(details, file=stream)
+            stream.flush()
+        sys.exit(1)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    sys.exit(code)
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    run()
