@@ -22,9 +22,11 @@ try{
  try{
   execFileSync('python3',['-u','scripts/broadcast_editor.py','render-assets/payload.json'],{stdio:'inherit'});
  }catch(error){
-  // Inherited streams intentionally leave stdout/stderr null; Python prints its cause live.
+  // Python already streamed its output and traceback; omit the error cause so Node does not print null stdout/stderr.
   const reason=error.code||`exit code ${error.status ?? 'unknown'}${error.signal?`, signal ${error.signal}`:''}`;
-  throw new Error(`[editor] Python editor failed (${reason}). See [editor] diagnostics above.`,{cause:error});
+  const hint=error.signal==='SIGKILL'?' The runner likely ran out of memory while loading the editor model.':'';
+  console.error(`[editor] Python editor failed (${reason}). See [editor] diagnostics above.${hint}`);
+  throw new Error(`[editor] Python editor failed (${reason}).${hint}`);
  }
  const edited=JSON.parse(await readFile('render-assets/payload.json','utf8'));
  await prepareShowdown(edited);
